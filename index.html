@@ -996,29 +996,28 @@ async function fetchNicoStats(smId, blockEl, btn) {
     if (mylistsM)  blockEl.querySelector('.stat-mylists').value  = mylistsM[1];
   } catch (e) { console.error('stats fetch error:', e); }
 
-  // Description — prefer nicolog (its formatting has been more consistently
-  // parseable in practice), and only fall back to an archived copy of the
-  // actual NicoNico watch page / getthumbinfo API (Wayback Machine) if
-  // nicolog doesn't have it. Either way, if both come up empty the user can
-  // still check manually via the Nicolog / Wayback Machine links above.
+  // Description — prefer an archived copy of the actual NicoNico watch page
+  // (Wayback Machine), since its line breaks match the original text. Only
+  // fall back to nicolog (which strips line breaks) if no archive could be
+  // found or parsed.
   let desc = '';
-  try {
-    const html = await fetchWithProxy(`https://www.nicolog.jp/watch/${smId}`);
-    const doc  = new DOMParser().parseFromString(html, 'text/html');
-    doc.querySelectorAll('dt').forEach(dt => {
-      if (dt.textContent.trim() === '動画説明') {
-        const dd = dt.nextElementSibling;
-        if (dd) {
-          dd.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
-          desc = dd.textContent.trim();
-        }
-      }
-    });
-  } catch (e) { console.error('nicolog desc fetch error:', e); }
+  try { desc = await fetchDescriptionFromWayback(smId); }
+  catch (e) { console.error('wayback description fetch error:', e); }
 
   if (!desc) {
-    try { desc = await fetchDescriptionFromWayback(smId); }
-    catch (e) { console.error('wayback description fetch error:', e); }
+    try {
+      const html = await fetchWithProxy(`https://www.nicolog.jp/watch/${smId}`);
+      const doc  = new DOMParser().parseFromString(html, 'text/html');
+      doc.querySelectorAll('dt').forEach(dt => {
+        if (dt.textContent.trim() === '動画説明') {
+          const dd = dt.nextElementSibling;
+          if (dd) {
+            dd.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
+            desc = dd.textContent.trim();
+          }
+        }
+      });
+    } catch (e) { console.error('nicolog desc fetch error:', e); }
   }
   if (desc) blockEl.querySelector('.desc-text').value = desc;
 
@@ -1026,6 +1025,23 @@ async function fetchNicoStats(smId, blockEl, btn) {
   btn.textContent = '✓ Done';
   btn.classList.add('on');
   setTimeout(() => { btn.textContent = 'Fetch Again'; btn.classList.remove('on'); }, 2000);
+}
+
+// ── AUTO-FETCH NICO STATS FOR ALL BLOCKS (triggered right after a VocaDB fetch) ──
+// Runs fetchNicoStats() for every rendered upload-data-block in parallel, so
+// views/comments/mylists/description for every NicoNico upload get pulled in
+// automatically instead of requiring a manual "Fetch Stats" click per block.
+function autoFetchAllNicoStats() {
+  const blocks = document.querySelectorAll('.upload-data-block');
+  const promises = [];
+  nicoData.forEach((d, i) => {
+    const smId = d.id;
+    const block = blocks[i];
+    if (!smId || !block) return;
+    const btn = block.querySelector('.fetch-stats-btn');
+    if (btn) promises.push(fetchNicoStats(smId, block, btn));
+  });
+  return Promise.all(promises);
 }
 
 // ── DESCRIPTION: OPTIONAL ENGLISH TRANSLATION ──
@@ -1088,7 +1104,7 @@ function rebuildDynamicSections() {
       <div class="field">
         <label>Description</label>
         <textarea class="desc-text" rows="4">${s.desc || ''}</textarea>
-        <div class="hint">"Fetch Stats" pulls this from nicolog first; if nicolog doesn't have it, it falls back to an archived copy of the NicoNico page (Wayback Machine).</div>
+        <div class="hint">"Fetch Stats" pulls this from an archived copy of the NicoNico page (Wayback Machine) so line breaks are preserved; it only falls back to nicolog if no archive can be parsed.</div>
       </div>
       <div class="field desc-en-wrap" style="${s.descEn ? '' : 'display:none;'}">
         <div style="display:flex;justify-content:space-between;align-items:center;">
@@ -1488,6 +1504,15 @@ async function fetchVocaDB() {
     } catch (e) { console.error('romaji fetch error:', e); }
 
     fillFromVocaDB(data, dataRomaji);
+
+    // Kick off NicoNico stats/description fetches for every upload block at
+    // the same time as the VocaDB fetch, instead of waiting for a manual
+    // "Fetch Stats" click on each one.
+    if (nicoData.some(d => d.id)) {
+      setStatus('Fetching NicoNico stats…', 'loading');
+      await autoFetchAllNicoStats();
+    }
+
     setStatus('✓ Fetch complete', 'ok');
   } catch (e) {
     setStatus('Fetch failed: ' + e.message, 'err');
