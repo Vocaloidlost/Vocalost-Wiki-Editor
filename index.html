@@ -762,222 +762,6 @@ async function fetchExtNicovideo(url) {
   }
 }
 
-// ── DESCRIPTION EXTRACTION ──
-// Pulls the video description from (in order of preference): the live/archived
-// getthumbinfo API (a clean, dedicated <description> field — the most reliable
-// source), then archived copies of the actual NicoNico watch page. Every
-// candidate string found is kept and the LONGEST one is used, rather than
-// stopping at the first hit — a short truncated snippet (e.g. a meta tag, or
-// a snapshot where the "read more" text wasn't expanded) would otherwise win
-// just because it was checked first.
-function decodeHtmlEntities(str) {
-  const ta = document.createElement('textarea');
-  ta.innerHTML = str;
-  return ta.value;
-}
-
-function stripBrToText(node) {
-  const clone = node.cloneNode(true);
-  clone.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
-  return clone.textContent.trim();
-}
-
-// Unescapes a raw JSON string body (the part between the quotes) by wrapping
-// it back in quotes and letting JSON.parse do the \n / \" / \uXXXX decoding.
-// Used when we only have a regex-extracted fragment of a JSON blob rather
-// than a value already produced by a successful JSON.parse.
-function jsonStringUnescape(raw) {
-  try { return JSON.parse('"' + raw + '"'); }
-  catch (e) { return raw; }
-}
-
-// Parses the XML/text response of ext.nicovideo.jp/api/getthumbinfo/{id}.
-// Using a regex instead of an XML parser here because the <description> field
-// sometimes contains raw, unescaped <br> tags which technically break XML
-// well-formedness (real-world niconico responses have done this for years).
-//
-// IMPORTANT: a "fail" response (deleted/private/hidden video, etc.) looks like:
-//   <nicovideo_thumb_response status="fail">
-//     <error><code>DELETED</code><description>deleted</description></error>
-//   </nicovideo_thumb_response>
-// That inner <error><description> is NOT the video's description — it's just
-// the error reason ("deleted", "hidden", "community", ...). A naive regex
-// match on <description> would grab that word and treat it as if it were the
-// real description, which both produces garbage output and (worse) makes the
-// caller think a description was found, so it never falls through to the
-// watch-page or nicolog fallbacks. So bail out early on any "fail" response.
-function parseGetThumbInfoDescription(text) {
-  if (!text) return '';
-  if (/<nicovideo_thumb_response\s+status=["']fail["']/i.test(text)) return '';
-  const m = text.match(/<description>([\s\S]*?)<\/description>/);
-  if (!m) return '';
-  let raw = m[1];
-  raw = raw.replace(/&lt;br\s*\/?&gt;/gi, '\n').replace(/<br\s*\/?>/gi, '\n');
-  const decoded = decodeHtmlEntities(raw);
-  return decoded.trim();
-}
-
-function extractNicoDescriptionFromHtml(html, allowMetaFallback) {
-  let doc;
-  try { doc = new DOMParser().parseFromString(html, 'text/html'); }
-  catch (e) { return ''; }
-  if (!doc) return '';
-
-  const candidates = [];
-
-  // Strategy A: redesigned (~2016+) watch pages embed a JSON blob containing
-  // the raw (HTML-formatted) description string.
-  const dataEl = doc.querySelector('#js-initial-watch-data');
-  if (dataEl) {
-    const raw = dataEl.getAttribute('data-api-data');
-    if (raw) {
-      let d = null;
-      try {
-        const api = JSON.parse(raw);
-        d = api && api.video && api.video.description;
-      } catch (e) {
-        // Some archived copies of this attribute don't parse as strict JSON
-        // (e.g. a stray unescaped character introduced by the crawl/proxy).
-        // Rather than giving up and falling all the way through to the
-        // (usually truncated) meta description, pull the description field
-        // out directly with a regex — this is what was actually causing the
-        // "truncated" results, since a failed parse here silently produced
-        // no candidate and let the short meta description win by default.
-        const m = raw.match(/"description"\s*:\s*"((?:\\.|[^"\\])*)"/);
-        if (m) d = jsonStringUnescape(m[1]);
-      }
-      if (d) {
-        const tmp = document.createElement('div');
-        tmp.innerHTML = d;
-        tmp.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
-        const text = tmp.textContent.trim();
-        if (text) candidates.push(text);
-      }
-    }
-  }
-
-  // Strategy A2: some archived snapshots (older crawls, simplified/bot-served
-  // variants) don't include the #js-initial-watch-data element at all, but
-  // still embed an equivalent JSON blob in some other <script> tag. Scan all
-  // scripts for a "description" field as an extra fallback candidate.
-  if (!dataEl) {
-    const scripts = [...doc.querySelectorAll('script')];
-    for (const script of scripts) {
-      const content = script.textContent;
-      if (!content || !content.includes('"description"')) continue;
-      const m = content.match(/"description"\s*:\s*"((?:\\.|[^"\\])*)"/);
-      if (!m) continue;
-      const d = jsonStringUnescape(m[1]);
-      if (!d) continue;
-      const tmp = document.createElement('div');
-      tmp.innerHTML = d;
-      tmp.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
-      const text = tmp.textContent.trim();
-      if (text) candidates.push(text);
-    }
-  }
-
-  // Strategy B: legacy (pre-2016) watch pages rendered the description
-  // server-side into one of these containers.
-  const legacySelectors = [
-    '#video_description',
-    '.videoDescription',
-    '.videoDescriptionUnabridged',
-    '#description',
-    '[itemprop="description"]',
-  ];
-  for (const sel of legacySelectors) {
-    const el = doc.querySelector(sel);
-    if (el) {
-      const text = el.tagName === 'META'
-        ? (el.getAttribute('content') || '').trim()
-        : stripBrToText(el);
-      if (text) candidates.push(text);
-    }
-  }
-
-  // Strategy C: meta description tag — only used when explicitly allowed,
-  // since it's almost always truncated with "…". Kept only as a last-ditch
-  // fallback candidate, never preferred over anything longer.
-  if (allowMetaFallback) {
-    const meta = doc.querySelector('meta[property="og:description"]') || doc.querySelector('meta[name="description"]');
-    if (meta) {
-      const content = (meta.getAttribute('content') || '').trim();
-      if (content) candidates.push(content);
-    }
-  }
-
-  if (!candidates.length) return '';
-  candidates.sort((a, b) => b.length - a.length);
-  return candidates[0];
-}
-
-// Finds candidate archived snapshots of a given URL via the CDX API
-// (falls back to the single-snapshot availability API if CDX fails).
-async function getWaybackSnapshots(originalUrl) {
-  const cdxUrl = `https://web.archive.org/cdx/search/cdx?url=${encodeURIComponent(originalUrl)}&output=json&filter=statuscode:200&collapse=timestamp:8&limit=20`;
-  try {
-    const text = await fetchWithProxy(cdxUrl);
-    const rows = JSON.parse(text);
-    if (Array.isArray(rows) && rows.length > 1) {
-      const header = rows[0];
-      const tsIdx = header.indexOf('timestamp');
-      const snaps = rows.slice(1).map(r => r[tsIdx]).filter(Boolean);
-      if (snaps.length) return snaps;
-    }
-  } catch (e) { console.error('Wayback CDX lookup error:', e); }
-
-  try {
-    const text = await fetchWithProxy(`https://archive.org/wayback/available?url=${encodeURIComponent(originalUrl)}`);
-    const data = JSON.parse(text);
-    const ts = data && data.archived_snapshots && data.archived_snapshots.closest && data.archived_snapshots.closest.timestamp;
-    if (ts) return [ts];
-  } catch (e) { console.error('Wayback availability API error:', e); }
-
-  return [];
-}
-
-// Gathers description candidates from live getthumbinfo, then — if that
-// comes up empty — the OLDEST archived snapshot of getthumbinfo, then the
-// OLDEST archived snapshot of the watch page. Only ever checks one snapshot
-// per source (the earliest one on record), not the whole history.
-async function fetchDescriptionFromWayback(smId) {
-  // 1. Live getthumbinfo API — not an archive lookup, just a quick shortcut
-  //    for videos that are still accessible.
-  try {
-    const text = await fetchExtNicovideo(`https://ext.nicovideo.jp/api/getthumbinfo/${smId}`);
-    const desc = parseGetThumbInfoDescription(text);
-    if (desc) return desc;
-  } catch (e) { /* video likely inaccessible live; continue to archives */ }
-
-  // 2. Oldest archived snapshot of that same API.
-  try {
-    const apiUrl = `http://ext.nicovideo.jp/api/getthumbinfo/${smId}`;
-    const apiSnapshots = await getWaybackSnapshots(apiUrl);
-    if (apiSnapshots.length) {
-      const oldestTs = apiSnapshots[0];
-      const text = await fetchWithProxy(`https://web.archive.org/web/${oldestTs}id_/${apiUrl}`);
-      const desc = parseGetThumbInfoDescription(text);
-      if (desc) return desc;
-    }
-  } catch (e) { console.error('getthumbinfo archive lookup error:', e); }
-
-  // 3. Oldest archived snapshot of the actual watch page — HTML-scraping fallback.
-  try {
-    const pageUrl = `http://www.nicovideo.jp/watch/${smId}`;
-    const pageSnapshots = await getWaybackSnapshots(pageUrl);
-    if (pageSnapshots.length) {
-      const oldestTs = pageSnapshots[0];
-      // "id_" modifier serves the raw archived bytes, unmodified by the Wayback toolbar/link rewriting
-      const html = await fetchWithProxy(`https://web.archive.org/web/${oldestTs}id_/${pageUrl}`);
-      const desc = extractNicoDescriptionFromHtml(html, /* allowMetaFallback */ true);
-      if (desc) return desc;
-    }
-  } catch (e) { console.error('watch page archive lookup error:', e); }
-
-  return '';
-}
-
 // ── FETCH NICO STATS FOR ONE BLOCK ──
 async function fetchNicoStats(smId, blockEl, btn) {
   if (!smId) return;
@@ -996,29 +780,21 @@ async function fetchNicoStats(smId, blockEl, btn) {
     if (mylistsM)  blockEl.querySelector('.stat-mylists').value  = mylistsM[1];
   } catch (e) { console.error('stats fetch error:', e); }
 
-  // Description — prefer an archived copy of the actual NicoNico watch page
-  // (Wayback Machine), since its line breaks match the original text. Only
-  // fall back to nicolog (which strips line breaks) if no archive could be
-  // found or parsed.
+  // Description — pulled from nicolog only.
   let desc = '';
-  try { desc = await fetchDescriptionFromWayback(smId); }
-  catch (e) { console.error('wayback description fetch error:', e); }
-
-  if (!desc) {
-    try {
-      const html = await fetchWithProxy(`https://www.nicolog.jp/watch/${smId}`);
-      const doc  = new DOMParser().parseFromString(html, 'text/html');
-      doc.querySelectorAll('dt').forEach(dt => {
-        if (dt.textContent.trim() === '動画説明') {
-          const dd = dt.nextElementSibling;
-          if (dd) {
-            dd.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
-            desc = dd.textContent.trim();
-          }
+  try {
+    const html = await fetchWithProxy(`https://www.nicolog.jp/watch/${smId}`);
+    const doc  = new DOMParser().parseFromString(html, 'text/html');
+    doc.querySelectorAll('dt').forEach(dt => {
+      if (dt.textContent.trim() === '動画説明') {
+        const dd = dt.nextElementSibling;
+        if (dd) {
+          dd.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
+          desc = dd.textContent.trim();
         }
-      });
-    } catch (e) { console.error('nicolog desc fetch error:', e); }
-  }
+      }
+    });
+  } catch (e) { console.error('nicolog desc fetch error:', e); }
   if (desc) blockEl.querySelector('.desc-text').value = desc;
 
   btn.disabled = false;
@@ -1104,7 +880,7 @@ function rebuildDynamicSections() {
       <div class="field">
         <label>Description</label>
         <textarea class="desc-text" rows="4">${s.desc || ''}</textarea>
-        <div class="hint">"Fetch Stats" pulls this from an archived copy of the NicoNico page (Wayback Machine) so line breaks are preserved; it only falls back to nicolog if no archive can be parsed.</div>
+        <div class="hint">"Fetch Stats" pulls this directly from nicolog.</div>
       </div>
       <div class="field desc-en-wrap" style="${s.descEn ? '' : 'display:none;'}">
         <div style="display:flex;justify-content:space-between;align-items:center;">
