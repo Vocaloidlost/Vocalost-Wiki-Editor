@@ -1739,7 +1739,7 @@ function generate() {
       const remTitle = remasterLabel || songtitle;
       out += `${titlePart} is a remaster of [[${remTitle}]] by producer [[${pLabel}]] using ${vocalSentence(vocals)}.\n\n`;
     } else if (songTypeVal === 'Cover') {
-      out += `${titlePart} is an cover by producer [[${pLabel}]], using ${vocalSentence(vocals)}.\n\n`;
+      out += `${titlePart} is a cover by producer [[${pLabel}]], using ${vocalSentence(vocals)}.\n\n`;
     } else {
       // Original (default)
       const producerPart = pLabel ? ` by producer [[${pLabel}]]` : '';
