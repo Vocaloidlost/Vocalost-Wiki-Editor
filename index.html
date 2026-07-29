@@ -4,21 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Vocalost Wiki Editor</title>
-
-<!-- Open Graph / Discord link preview -->
-<meta property="og:title" content="Vocalost Wiki Editor">
-<meta property="og:description" content="A tool that auto-fetches song data from VocaDB and NicoNico and generates ready-to-paste infobox templates for the Vocalost Wiki.">
-<meta property="og:type" content="website">
-<meta property="og:url" content="https://vocaloidlost.github.io/Vocalost-Wiki-Editor/">
-<meta property="og:image" content="https://vocaloidlost.github.io/Vocalost-Wiki-Editor/preview.png">
-<meta name="theme-color" content="#a78bfa">
-
-<!-- Twitter Card (also used as a fallback by some embed generators) -->
-<meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Vocalost Wiki Editor">
-<meta name="twitter:description" content="A tool that auto-fetches song data from VocaDB and NicoNico and generates ready-to-paste infobox templates for the Vocalost Wiki.">
-<meta name="twitter:image" content="https://vocaloidlost.github.io/Vocalost-Wiki-Editor/preview.png">
-
 <style>
   :root {
     --bg: #0d0d12;
@@ -124,9 +109,11 @@
   /* ── UPLOAD ENTRIES ── */
   .upload-block { border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 8px; }
   .upload-block-title { font-size: 11px; font-weight: 700; color: var(--accent); letter-spacing: .05em; }
+  .upload-block-hd { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
   .nico-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .nico-row input { flex: 1; margin: 0; }
   .nico-url-display { font-size: 11px; color: var(--muted); word-break: break-all; padding: 4px 0; }
+  .nico-video-title { font-size: 12px; color: var(--text); font-weight: 600; word-break: break-word; }
 
   /* ── EXT LINK ENTRIES ── */
   .ext-entry { border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 8px; }
@@ -475,6 +462,13 @@ function ordinal(n) {
 }
 function uploadLabel(i) { return `${i}${ordinal(i)} upload`; }
 
+// ── HTML ESCAPE (used when inserting arbitrary text, e.g. VocaDB titles, into innerHTML) ──
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str == null ? '' : String(str);
+  return div.innerHTML;
+}
+
 // ── IMAGE FILE SYNC ──
 // Track whether user has manually edited image_file
 let imageManual = false;
@@ -692,7 +686,9 @@ function copyGalleryFileName(btn) {
 }
 
 // ── NICO UPLOAD DATA ──
-// nicoData: [{url, id}] — populated by fillFromVocaDB
+// nicoData: [{url, id, name}] — populated by fillFromVocaDB. `name` is the PV's
+// video title as registered on VocaDB, shown small above the link, and entries
+// can be freely removed via removeNicoEntry() (renumbers "1st/2nd upload" etc).
 let nicoData = [];
 
 function extractNicoId(url) {
@@ -852,13 +848,38 @@ function removeDescEn(btn) {
   if (toggleBtn) toggleBtn.style.display = '';
 }
 
-function rebuildDynamicSections() {
+// ── REMOVE A NICO UPLOAD ENTRY (freely delete a fetched NicoNico link) ──
+// Renumbering of "1st upload / 2nd upload / ..." labels is handled automatically:
+// rebuildDynamicSections() derives each label purely from the entry's position in
+// nicoData, so once the entry is spliced out, everything after it shifts up by one.
+function removeNicoEntry(index) {
+  // Capture whatever the user has typed into the currently-rendered blocks so we
+  // don't lose views/comments/mylists/description text for the entries we keep.
+  const saved = [...document.querySelectorAll('.upload-data-block')].map(el => ({
+    views:    el.querySelector('.stat-views')?.value    || '',
+    comments: el.querySelector('.stat-comments')?.value || '',
+    mylists:  el.querySelector('.stat-mylists')?.value  || '',
+    desc:     el.querySelector('.desc-text')?.value     || '',
+    descEn:   el.querySelector('.desc-en-text')?.value  || '',
+  }));
+
+  if (index < 0 || index >= nicoData.length) return;
+  nicoData.splice(index, 1);
+  saved.splice(index, 1);
+
+  if (nicoData.length === 0) nicoData = [{ url: '', id: '', name: '' }];
+
+  rebuildDynamicSections(saved);
+}
+
+function rebuildDynamicSections(providedSaved) {
   const n     = Math.max(nicoData.length, 1);
   const multi = n > 1;
   const body  = document.getElementById('upload-data-body');
 
-  // Save current values before rebuild
-  const saved = [...document.querySelectorAll('.upload-data-block')].map(el => ({
+  // Save current values before rebuild (unless a saved set was already passed in,
+  // e.g. by removeNicoEntry(), which captures values before splicing nicoData)
+  const saved = providedSaved || [...document.querySelectorAll('.upload-data-block')].map(el => ({
     views:    el.querySelector('.stat-views')?.value    || '',
     comments: el.querySelector('.stat-comments')?.value || '',
     mylists:  el.querySelector('.stat-mylists')?.value  || '',
@@ -873,12 +894,17 @@ function rebuildDynamicSections() {
     const s    = saved[i] || {};
     const url  = nicoData[i]?.url  || '';
     const smId = nicoData[i]?.id   || '';
+    const vtitle = nicoData[i]?.name || '';
 
     const div = document.createElement('div');
     div.className = 'upload-block upload-data-block';
 
     div.innerHTML = `
-      ${lbl ? `<div class="upload-block-title">${lbl}</div>` : ''}
+      <div class="upload-block-hd">
+        ${lbl ? `<div class="upload-block-title">${lbl}</div>` : '<div></div>'}
+        ${smId ? `<button type="button" class="del-btn" onclick="removeNicoEntry(${i})">Delete</button>` : ''}
+      </div>
+      ${vtitle ? `<div class="nico-video-title">${escapeHtml(vtitle)}</div>` : ''}
       <div class="nico-row">
         ${url ? `<div class="nico-url-display">${url}</div>` : ''}
         ${smId ? `<button type="button" class="icon-btn" onclick="copySmId('${smId}', this)">${smId}</button>` : ''}
@@ -1344,9 +1370,11 @@ function fillFromVocaDB(data, dataRomaji) {
 
   document.getElementById('videotitle').value = nndPvs[0]?.name || title;
 
+  // Each entry keeps the PV's own VocaDB video title (`name`) so it can be shown
+  // small above the link in the Info/Stats blocks.
   nicoData = nndPvs.length
-    ? nndPvs.map(pv => ({ url: pv.url, id: extractNicoId(pv.url) }))
-    : [{ url: '', id: '' }];
+    ? nndPvs.map(pv => ({ url: pv.url, id: extractNicoId(pv.url), name: pv.name || '' }))
+    : [{ url: '', id: '', name: '' }];
 
   rebuildDynamicSections();
 
@@ -1780,7 +1808,7 @@ function copyOutput() {
 }
 
 // ── INIT ──
-nicoData = [{ url: '', id: '' }];
+nicoData = [{ url: '', id: '', name: '' }];
 addVocalEntry();
 addLyricsBlock('Japanese', '');
 rebuildDynamicSections();
