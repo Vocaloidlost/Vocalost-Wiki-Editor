@@ -109,11 +109,9 @@
   /* ── UPLOAD ENTRIES ── */
   .upload-block { border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 8px; }
   .upload-block-title { font-size: 11px; font-weight: 700; color: var(--accent); letter-spacing: .05em; }
-  .upload-block-hd { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
   .nico-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .nico-row input { flex: 1; margin: 0; }
   .nico-url-display { font-size: 11px; color: var(--muted); word-break: break-all; padding: 4px 0; }
-  .nico-video-title { font-size: 12px; color: var(--text); font-weight: 600; word-break: break-word; }
 
   /* ── EXT LINK ENTRIES ── */
   .ext-entry { border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 8px; }
@@ -235,7 +233,7 @@
         <input type="hidden" id="albumOnVal" value="0">
 
         <div class="field" id="remaster-title-field" style="display:none;margin-top:8px;">
-          <label id="remaster-title-label">Original Title Being Remastered</label>
+          <label>Original Title Being Remastered</label>
           <div class="row2">
             <div class="field">
               <label>Japanese</label>
@@ -462,39 +460,6 @@ function ordinal(n) {
 }
 function uploadLabel(i) { return `${i}${ordinal(i)} upload`; }
 
-// ── HTML ESCAPE (used when inserting arbitrary text, e.g. VocaDB titles, into innerHTML) ──
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str == null ? '' : String(str);
-  return div.innerHTML;
-}
-
-// ── AUTOSAVE (localStorage) ──
-// Everything the user types or fetches is periodically saved to localStorage and
-// restored automatically on page load, so navigating away or reloading no longer
-// loses in-progress work. autosaveEnabled stays false until the initial load/restore
-// finishes, so restoring a saved session doesn't immediately overwrite itself with
-// empty defaults.
-const AUTOSAVE_KEY = 'vocalost_autosave_v1';
-let autosaveEnabled = false;
-let autosaveTimer = null;
-
-function scheduleSave() {
-  if (!autosaveEnabled) return;
-  clearTimeout(autosaveTimer);
-  autosaveTimer = setTimeout(saveStateNow, 400);
-}
-
-function saveStateNow() {
-  try {
-    localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(collectState()));
-  } catch (e) { console.error('autosave failed:', e); }
-}
-
-function clearAutosave() {
-  try { localStorage.removeItem(AUTOSAVE_KEY); } catch (e) {}
-}
-
 // ── IMAGE FILE SYNC ──
 // Track whether user has manually edited image_file
 let imageManual = false;
@@ -610,7 +575,6 @@ function selectCaption(el) {
     document.getElementById('image_file').value =
       el.dataset.val === 'No image available' ? 'Song Default' : (title || '');
   }
-  scheduleSave();
 }
 
 // ── CHIP SELECT ──
@@ -618,12 +582,10 @@ function selectChip(el, groupId, hiddenId) {
   document.querySelectorAll(`#${groupId} .chip`).forEach(c => c.classList.remove('active'));
   el.classList.add('active');
   document.getElementById(hiddenId).value = el.dataset.val;
-  scheduleSave();
 }
 function onStatusChange() {
   const val = document.getElementById('statusVal').value;
   document.getElementById('partial-sec').classList.toggle('show', val === 'Partially Found');
-  scheduleSave();
 }
 
 // ── SONG TYPE (Original / Remaster / Cover, mutually exclusive) + Album (independent toggle) ──
@@ -632,37 +594,27 @@ function selectSongType(el) {
     if (c.dataset.val !== 'Album') c.classList.remove('active');
   });
   el.classList.add('active');
-  const val = el.dataset.val;
-  document.getElementById('songTypeVal').value = val;
+  document.getElementById('songTypeVal').value = el.dataset.val;
 
   const remField = document.getElementById('remaster-title-field');
-  const remLabel = document.getElementById('remaster-title-label');
-  const needsOriginalTitle = val === 'Remaster' || val === 'Cover';
-  remField.style.display = needsOriginalTitle ? 'flex' : 'none';
-  if (remLabel) {
-    remLabel.textContent = val === 'Cover'
-      ? 'Original Title Being Covered'
-      : 'Original Title Being Remastered';
-  }
-  if (needsOriginalTitle) {
+  const isRemaster = el.dataset.val === 'Remaster';
+  remField.style.display = isRemaster ? 'flex' : 'none';
+  if (isRemaster) {
     const jaInput = document.getElementById('remaster_original_title_ja');
     const romanInput = document.getElementById('remaster_original_title_roman');
     if (!jaInput.value) jaInput.value = document.getElementById('songtitle').value;
     if (!romanInput.value) romanInput.value = document.getElementById('songtitle_roman').value;
   }
-  scheduleSave();
 }
 function toggleAlbumChip(el) {
   const isOn = el.classList.toggle('active');
   document.getElementById('albumOnVal').value = isOn ? '1' : '0';
   document.getElementById('album-name-field').style.display = isOn ? 'flex' : 'none';
-  scheduleSave();
 }
 function toggleWarningChip(el) {
   const isOn = el.classList.toggle('active');
   document.getElementById('warningOnVal').value = isOn ? '1' : '0';
   document.getElementById('warning-desc-field').style.display = isOn ? 'flex' : 'none';
-  scheduleSave();
 }
 
 // ── ILLUSTRATOR LIST ──
@@ -675,11 +627,10 @@ function addIllustratorEntry(name = '', link = '') {
       <input type="text" class="illust-name" value="${name}" placeholder="Name">
       <input type="text" class="illust-link" value="${link}" placeholder="Link (https://...)">
     </div>
-    <button type="button" class="del-btn" onclick="this.closest('.illust-entry').remove(); populateIllustrationCaptionSelect(); scheduleSave();">×</button>
+    <button type="button" class="del-btn" onclick="this.closest('.illust-entry').remove(); populateIllustrationCaptionSelect();">×</button>
   `;
   list.appendChild(div);
   populateIllustrationCaptionSelect();
-  scheduleSave();
 }
 
 // ── VOCAL LIST ──
@@ -689,10 +640,9 @@ function addVocalEntry(name = '') {
   div.className = 'person-entry';
   div.innerHTML = `
     <input type="text" class="vocal-name" value="${name}" placeholder="Vocal name">
-    <button type="button" class="del-btn" onclick="this.closest('.person-entry').remove(); scheduleSave();">×</button>
+    <button type="button" class="del-btn" onclick="this.closest('.person-entry').remove()">×</button>
   `;
   list.appendChild(div);
-  scheduleSave();
 }
 
 // ── GALLERY LIST ──
@@ -708,10 +658,9 @@ function addGalleryEntry(filename = '', caption = '') {
       </div>
       <input type="text" class="gallery-caption" value="${caption}" placeholder="Caption (e.g. Illustration by 〇〇)">
     </div>
-    <button type="button" class="del-btn" onclick="this.closest('.gallery-entry').remove(); scheduleSave();">×</button>
+    <button type="button" class="del-btn" onclick="this.closest('.gallery-entry').remove()">×</button>
   `;
   list.appendChild(div);
-  scheduleSave();
 }
 
 // ── GALLERY FILE NAME COPY ──
@@ -728,9 +677,7 @@ function copyGalleryFileName(btn) {
 }
 
 // ── NICO UPLOAD DATA ──
-// nicoData: [{url, id, name}] — populated by fillFromVocaDB. `name` is the PV's
-// video title as registered on VocaDB, shown small above the link, and entries
-// can be freely removed via removeNicoEntry() (renumbers "1st/2nd upload" etc).
+// nicoData: [{url, id}] — populated by fillFromVocaDB
 let nicoData = [];
 
 function extractNicoId(url) {
@@ -762,12 +709,11 @@ function addLyricsBlock(lang = 'Japanese', value = '') {
   div.innerHTML = `
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
       <input type="text" class="lyrics-lang" value="${lang}" style="flex:1;margin:0;" placeholder="Language name (e.g. Japanese)">
-      <button type="button" class="del-btn" onclick="this.closest('.lyrics-block').remove(); scheduleSave();">×</button>
+      <button type="button" class="del-btn" onclick="this.closest('.lyrics-block').remove()">×</button>
     </div>
     <textarea class="lyrics-text" rows="8">${value}</textarea>
   `;
   body.appendChild(div);
-  scheduleSave();
 }
 
 // ── CORS PROXY FETCH ──
@@ -850,7 +796,6 @@ async function fetchNicoStats(smId, blockEl, btn) {
     });
   } catch (e) { console.error('nicolog desc fetch error:', e); }
   if (desc) blockEl.querySelector('.desc-text').value = desc;
-  scheduleSave();
 
   btn.disabled = false;
   btn.textContent = '✓ Done';
@@ -882,7 +827,6 @@ function toggleDescEn(btn) {
   wrap.style.display = 'flex';
   btn.style.display = 'none';
   wrap.querySelector('.desc-en-text')?.focus();
-  scheduleSave();
 }
 function removeDescEn(btn) {
   const block = btn.closest('.upload-data-block');
@@ -891,41 +835,15 @@ function removeDescEn(btn) {
   wrap.style.display = 'none';
   const toggleBtn = block.querySelector('.desc-en-toggle-btn');
   if (toggleBtn) toggleBtn.style.display = '';
-  scheduleSave();
 }
 
-// ── REMOVE A NICO UPLOAD ENTRY (freely delete a fetched NicoNico link) ──
-// Renumbering of "1st upload / 2nd upload / ..." labels is handled automatically:
-// rebuildDynamicSections() derives each label purely from the entry's position in
-// nicoData, so once the entry is spliced out, everything after it shifts up by one.
-function removeNicoEntry(index) {
-  // Capture whatever the user has typed into the currently-rendered blocks so we
-  // don't lose views/comments/mylists/description text for the entries we keep.
-  const saved = [...document.querySelectorAll('.upload-data-block')].map(el => ({
-    views:    el.querySelector('.stat-views')?.value    || '',
-    comments: el.querySelector('.stat-comments')?.value || '',
-    mylists:  el.querySelector('.stat-mylists')?.value  || '',
-    desc:     el.querySelector('.desc-text')?.value     || '',
-    descEn:   el.querySelector('.desc-en-text')?.value  || '',
-  }));
-
-  if (index < 0 || index >= nicoData.length) return;
-  nicoData.splice(index, 1);
-  saved.splice(index, 1);
-
-  if (nicoData.length === 0) nicoData = [{ url: '', id: '', name: '' }];
-
-  rebuildDynamicSections(saved);
-}
-
-function rebuildDynamicSections(providedSaved) {
+function rebuildDynamicSections() {
   const n     = Math.max(nicoData.length, 1);
   const multi = n > 1;
   const body  = document.getElementById('upload-data-body');
 
-  // Save current values before rebuild (unless a saved set was already passed in,
-  // e.g. by removeNicoEntry(), which captures values before splicing nicoData)
-  const saved = providedSaved || [...document.querySelectorAll('.upload-data-block')].map(el => ({
+  // Save current values before rebuild
+  const saved = [...document.querySelectorAll('.upload-data-block')].map(el => ({
     views:    el.querySelector('.stat-views')?.value    || '',
     comments: el.querySelector('.stat-comments')?.value || '',
     mylists:  el.querySelector('.stat-mylists')?.value  || '',
@@ -940,17 +858,12 @@ function rebuildDynamicSections(providedSaved) {
     const s    = saved[i] || {};
     const url  = nicoData[i]?.url  || '';
     const smId = nicoData[i]?.id   || '';
-    const vtitle = nicoData[i]?.name || '';
 
     const div = document.createElement('div');
     div.className = 'upload-block upload-data-block';
 
     div.innerHTML = `
-      <div class="upload-block-hd">
-        ${lbl ? `<div class="upload-block-title">${lbl}</div>` : '<div></div>'}
-        ${smId ? `<button type="button" class="del-btn" onclick="removeNicoEntry(${i})">Delete</button>` : ''}
-      </div>
-      ${vtitle ? `<div class="nico-video-title">${escapeHtml(vtitle)}</div>` : ''}
+      ${lbl ? `<div class="upload-block-title">${lbl}</div>` : ''}
       <div class="nico-row">
         ${url ? `<div class="nico-url-display">${url}</div>` : ''}
         ${smId ? `<button type="button" class="icon-btn" onclick="copySmId('${smId}', this)">${smId}</button>` : ''}
@@ -981,7 +894,6 @@ function rebuildDynamicSections(providedSaved) {
     body.appendChild(div);
   }
   updateThumbIdList();
-  scheduleSave();
 }
 
 // ── THUMBNAIL ID LIST (synced with nicoData) ──
@@ -1319,13 +1231,12 @@ function addExtLink(data = {}) {
     <div class="field"><label>URL</label><input type="text" class="ext-url" value="${data.url || ''}"></div>
     <div class="field"><label>Link Name</label><input type="text" class="ext-name" value="${data.name || ''}"></div>
     <div class="ext-btn-row">
-      <button type="button" class="icon-btn upload-btn${data.isUpload ? ' on' : ''}" onclick="this.classList.toggle('on'); scheduleSave();">Upload</button>
-      <button type="button" class="icon-btn broken-btn" onclick="this.classList.toggle('on'); scheduleSave();">Broken</button>
-      <button type="button" class="del-btn" onclick="this.closest('.ext-entry').remove(); scheduleSave();">Delete</button>
+      <button type="button" class="icon-btn upload-btn${data.isUpload ? ' on' : ''}" onclick="this.classList.toggle('on')">Upload</button>
+      <button type="button" class="icon-btn broken-btn" onclick="this.classList.toggle('on')">Broken</button>
+      <button type="button" class="del-btn" onclick="this.closest('.ext-entry').remove()">Delete</button>
     </div>
   `;
   list.appendChild(div);
-  scheduleSave();
 }
 
 // ── PV SERVICE NAME MAPPING ──
@@ -1418,11 +1329,9 @@ function fillFromVocaDB(data, dataRomaji) {
 
   document.getElementById('videotitle').value = nndPvs[0]?.name || title;
 
-  // Each entry keeps the PV's own VocaDB video title (`name`) so it can be shown
-  // small above the link in the Info/Stats blocks.
   nicoData = nndPvs.length
-    ? nndPvs.map(pv => ({ url: pv.url, id: extractNicoId(pv.url), name: pv.name || '' }))
-    : [{ url: '', id: '', name: '' }];
+    ? nndPvs.map(pv => ({ url: pv.url, id: extractNicoId(pv.url) }))
+    : [{ url: '', id: '' }];
 
   rebuildDynamicSections();
 
@@ -1521,8 +1430,6 @@ function fillFromVocaDB(data, dataRomaji) {
   // WebLinks — only category === 'Official' ones get added to External Links (after the official PVs)
   const officialLinks = (data.webLinks || []).filter(l => l.category === 'Official');
   officialLinks.forEach(l => addExtLink({ url: l.url, name: l.description || '' }));
-
-  scheduleSave();
 }
 
 // ── DATE FORMATTER ──
@@ -1746,7 +1653,7 @@ function generate() {
       const remTitle = remasterLabel || songtitle;
       out += `${titlePart} is a remaster of [[${remTitle}]] by producer [[${pLabel}]] using ${vocalSentence(vocals)}.\n\n`;
     } else if (songTypeVal === 'Cover') {
-      out += `${titlePart} is an cover by producer [[${pLabel}]], using ${vocalSentence(vocals)}.\n\n`;
+      out += `${titlePart} is a cover by producer [[${pLabel}]], using ${vocalSentence(vocals)}.\n\n`;
     } else {
       // Original (default)
       const producerPart = pLabel ? ` by producer [[${pLabel}]]` : '';
@@ -1833,192 +1740,6 @@ function generate() {
   document.getElementById('output').textContent = out;
 }
 
-// ── AUTOSAVE: COLLECT STATE ──
-// Gathers every field, dynamic list, and chip selection into one plain object
-// that can be JSON-serialized to localStorage.
-function collectState() {
-  const gv = id => document.getElementById(id)?.value ?? '';
-
-  const illustrators = [...document.querySelectorAll('#illustrator-list .illust-entry')].map(el => ({
-    name: el.querySelector('.illust-name')?.value || '',
-    link: el.querySelector('.illust-link')?.value || '',
-  }));
-  const vocals = [...document.querySelectorAll('#vocal-list .vocal-name')].map(el => el.value || '');
-  const lyricsBlocks = [...document.querySelectorAll('.lyrics-block')].map(el => ({
-    lang: el.querySelector('.lyrics-lang')?.value || '',
-    text: el.querySelector('.lyrics-text')?.value || '',
-  }));
-  const uploadStats = [...document.querySelectorAll('.upload-data-block')].map(el => ({
-    views:    el.querySelector('.stat-views')?.value    || '',
-    comments: el.querySelector('.stat-comments')?.value || '',
-    mylists:  el.querySelector('.stat-mylists')?.value  || '',
-    desc:     el.querySelector('.desc-text')?.value     || '',
-    descEn:   el.querySelector('.desc-en-text')?.value  || '',
-  }));
-  const galleryEntries = [...document.querySelectorAll('#gallery-list .gallery-entry')].map(el => ({
-    filename: el.querySelector('.gallery-filename')?.value || '',
-    caption:  el.querySelector('.gallery-caption')?.value  || '',
-  }));
-  const extLinks = [...document.querySelectorAll('.ext-entry')].map(el => ({
-    url:      el.querySelector('.ext-url')?.value  || '',
-    name:     el.querySelector('.ext-name')?.value || '',
-    isUpload: el.querySelector('.upload-btn')?.classList.contains('on') || false,
-    broken:   el.querySelector('.broken-btn')?.classList.contains('on') || false,
-  }));
-
-  return {
-    vocadbUrl: gv('vocadbUrl'),
-    videotitle: gv('videotitle'),
-    songtitle: gv('songtitle'),
-    songtitle_roman: gv('songtitle_roman'),
-    songtitle_english: gv('songtitle_english'),
-    producer_ja: gv('producer_ja'),
-    producer_roman: gv('producer_roman'),
-    illustrators,
-    vocals,
-    duration: gv('duration'),
-    date: gv('date'),
-    songTypeVal: gv('songTypeVal'),
-    albumOnVal: gv('albumOnVal'),
-    remaster_original_title_ja: gv('remaster_original_title_ja'),
-    remaster_original_title_roman: gv('remaster_original_title_roman'),
-    album_name_ja: gv('album_name_ja'),
-    album_name_roman: gv('album_name_roman'),
-    warningOnVal: gv('warningOnVal'),
-    warning_description: gv('warning_description'),
-    nicoData,
-    uploadStats,
-    lyricsBlocks,
-    yt_url: gv('yt_url'),
-    tabnameVal: gv('tabnameVal'),
-    statusVal: gv('statusVal'),
-    partial_seconds: gv('partial_seconds'),
-    image_file: gv('image_file'),
-    imageManual,
-    captionVal: gv('captionVal'),
-    illustration_caption_name: gv('illustration_caption_name'),
-    galleryEntries,
-    extLinks,
-  };
-}
-
-// ── AUTOSAVE: RESTORE CHIP / TOGGLE STATE ──
-function restoreChipStates(state) {
-  // Song type (Original / Remaster / Cover) — mutually exclusive
-  const songTypeVal = state.songTypeVal || 'Original';
-  document.querySelectorAll('#songtype-chips .chip').forEach(c => {
-    if (c.dataset.val !== 'Album') c.classList.toggle('active', c.dataset.val === songTypeVal);
-  });
-  document.getElementById('songTypeVal').value = songTypeVal;
-  document.getElementById('remaster-title-field').style.display = (songTypeVal === 'Remaster' || songTypeVal === 'Cover') ? 'flex' : 'none';
-  const remLabelEl = document.getElementById('remaster-title-label');
-  if (remLabelEl) {
-    remLabelEl.textContent = songTypeVal === 'Cover'
-      ? 'Original Title Being Covered'
-      : 'Original Title Being Remastered';
-  }
-
-  // Album — independent toggle within the same chip group
-  const albumOn = state.albumOnVal === '1';
-  const albumChip = document.querySelector('#songtype-chips .chip[data-val="Album"]');
-  if (albumChip) albumChip.classList.toggle('active', albumOn);
-  document.getElementById('albumOnVal').value = albumOn ? '1' : '0';
-  document.getElementById('album-name-field').style.display = albumOn ? 'flex' : 'none';
-
-  // Content warning
-  const warningOn = state.warningOnVal === '1';
-  const warnChip = document.querySelector('#warning-chips .chip');
-  if (warnChip) warnChip.classList.toggle('active', warningOn);
-  document.getElementById('warningOnVal').value = warningOn ? '1' : '0';
-  document.getElementById('warning-desc-field').style.display = warningOn ? 'flex' : 'none';
-
-  // Video tab name
-  const tabnameVal = state.tabnameVal || 'Reprint';
-  document.querySelectorAll('#tabname-chips .chip').forEach(c => c.classList.toggle('active', c.dataset.val === tabnameVal));
-  document.getElementById('tabnameVal').value = tabnameVal;
-
-  // Status
-  const statusVal = state.statusVal || '';
-  document.querySelectorAll('#status-chips .chip').forEach(c => c.classList.toggle('active', c.dataset.val === statusVal));
-  document.getElementById('statusVal').value = statusVal;
-  document.getElementById('partial-sec').classList.toggle('show', statusVal === 'Partially Found');
-
-  // Image caption
-  const captionVal = state.captionVal || '';
-  document.querySelectorAll('#caption-chips .chip').forEach(c => c.classList.toggle('active', c.dataset.val === captionVal));
-  document.getElementById('captionVal').value = captionVal;
-  document.getElementById('illustration-caption-field').style.display = captionVal === 'Illustration' ? 'flex' : 'none';
-}
-
-// ── AUTOSAVE: RESTORE FULL STATE ──
-function restoreState(state) {
-  if (!state) return;
-  const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val ?? ''; };
-
-  setVal('vocadbUrl', state.vocadbUrl);
-  setVal('videotitle', state.videotitle);
-  setVal('songtitle', state.songtitle);
-  setVal('songtitle_roman', state.songtitle_roman);
-  setVal('songtitle_english', state.songtitle_english);
-  setVal('producer_ja', state.producer_ja);
-  setVal('producer_roman', state.producer_roman);
-  setVal('duration', state.duration);
-  setVal('date', state.date);
-  setVal('remaster_original_title_ja', state.remaster_original_title_ja);
-  setVal('remaster_original_title_roman', state.remaster_original_title_roman);
-  setVal('album_name_ja', state.album_name_ja);
-  setVal('album_name_roman', state.album_name_roman);
-  setVal('warning_description', state.warning_description);
-  setVal('yt_url', state.yt_url);
-  setVal('partial_seconds', state.partial_seconds);
-  setVal('image_file', state.image_file);
-
-  imageManual = !!state.imageManual;
-
-  // Illustrators
-  document.getElementById('illustrator-list').innerHTML = '';
-  (state.illustrators || []).forEach(il => addIllustratorEntry(il.name || '', il.link || ''));
-
-  // Vocals
-  document.getElementById('vocal-list').innerHTML = '';
-  if ((state.vocals || []).length) {
-    state.vocals.forEach(v => addVocalEntry(v || ''));
-  } else {
-    addVocalEntry();
-  }
-
-  // Lyrics
-  document.getElementById('lyrics-body').innerHTML = '';
-  if ((state.lyricsBlocks || []).length) {
-    state.lyricsBlocks.forEach(l => addLyricsBlock(l.lang || 'Japanese', l.text || ''));
-  } else {
-    addLyricsBlock('Japanese', '');
-  }
-
-  // NicoNico upload data + per-upload stats/description
-  nicoData = (state.nicoData && state.nicoData.length) ? state.nicoData : [{ url: '', id: '', name: '' }];
-  rebuildDynamicSections(state.uploadStats || []);
-
-  // Gallery
-  document.getElementById('gallery-list').innerHTML = '';
-  (state.galleryEntries || []).forEach(g => addGalleryEntry(g.filename || '', g.caption || ''));
-
-  // External links (broken-flag is applied after creation since addExtLink only handles isUpload)
-  document.getElementById('ext-link-list').innerHTML = '';
-  (state.extLinks || []).forEach(e => {
-    addExtLink({ url: e.url, name: e.name, isUpload: e.isUpload });
-    if (e.broken) {
-      document.getElementById('ext-link-list').lastElementChild
-        ?.querySelector('.broken-btn')?.classList.add('on');
-    }
-  });
-
-  restoreChipStates(state);
-
-  populateIllustrationCaptionSelect();
-  setVal('illustration_caption_name', state.illustration_caption_name);
-}
-
 // ── RESET ──
 function showResetConfirm() {
   document.getElementById('resetConfirmBar').classList.add('show');
@@ -2027,7 +1748,6 @@ function cancelReset() {
   document.getElementById('resetConfirmBar').classList.remove('show');
 }
 function confirmReset() {
-  clearAutosave();
   location.reload();
 }
 
@@ -2045,36 +1765,12 @@ function copyOutput() {
 }
 
 // ── INIT ──
-nicoData = [{ url: '', id: '', name: '' }];
+nicoData = [{ url: '', id: '' }];
 addVocalEntry();
 addLyricsBlock('Japanese', '');
 rebuildDynamicSections();
 initHistoryLists();
 populateIllustrationCaptionSelect();
-
-// ── AUTOSAVE: restore any previously saved session, then start autosaving ──
-// (autosaveEnabled stays false during the block above and during restoreState()
-// itself, so none of that setup work overwrites a saved session before it's loaded)
-(function initAutosave() {
-  let restored = false;
-  try {
-    const raw = localStorage.getItem(AUTOSAVE_KEY);
-    if (raw) {
-      restoreState(JSON.parse(raw));
-      restored = true;
-    }
-  } catch (e) { console.error('autosave restore failed:', e); }
-
-  autosaveEnabled = true;
-  if (!restored) scheduleSave();
-})();
-
-// Any typing or dropdown change anywhere in the form triggers a debounced autosave
-document.addEventListener('input', scheduleSave);
-document.addEventListener('change', scheduleSave);
-// Final safety-net flush in case the debounce timer hasn't fired yet when the
-// user navigates away or closes the tab
-window.addEventListener('beforeunload', () => { if (autosaveEnabled) saveStateNow(); });
 
 // ── ENTER KEY → NEXT FIELD (like Tab on mobile) ──
 document.addEventListener('keydown', e => {
